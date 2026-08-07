@@ -1,0 +1,56 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Node
+node_modules/
+
+# Build
+dist/
+dist-ssr/
+build/
+
+# Local environment
+*.local
+.env
+backend/.env
+backend/serviceAccountKey.json
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+backend/venv/
+backend/venv_backup/
+backend/__pycache__/
+backend/app/__pycache__/
+
+# Uploaded files
+backend/uploads/
+
+# Text files (optional)
+backend_structure.txt
+structure.txt
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+
+
+# Firebase Admin SDK
+backend/civic-sync-cosmic-firebase-adminsdk-fbsvc-ddcee060c2.json
+
+backend/civic-sync-cosmic-firebase-adminsdk-fbsvc-92503724f2.json
