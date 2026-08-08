@@ -1,8 +1,8 @@
 import { motion } from "framer-motion";
-import { FileText, ArrowLeft, Calendar, Hash, Shield, TrendingUp, Download, Loader2, Globe, Copy, Check } from "lucide-react";
+import { FileText, ArrowLeft, Calendar, Hash, Shield, ShieldCheck, TrendingUp, Download, Loader2, Globe, Copy, Check, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { getBillById, translateBill } from "../../services/billService";
+import { getBillById, translateBill, updateBillVerification } from "../../services/billService";
 import clsx from "clsx";
 
 const LANGUAGES = [
@@ -21,6 +21,34 @@ const STATUS_CONFIG = {
   rejected: { label: "Rejected", color: "text-danger", bg: "bg-danger/10 border-danger/20" },
 };
 
+const VERIFICATION_STATUS_CONFIG = {
+  draft: { label: "Draft", color: "text-textSecondary", bg: "bg-[#12141d] border-border" },
+  needs_review: { label: "Needs Review", color: "text-accent", bg: "bg-accent/10 border-accent/20" },
+  verified: { label: "Verified", color: "text-success", bg: "bg-success/10 border-success/20" },
+  rejected: { label: "Rejected", color: "text-danger", bg: "bg-danger/10 border-danger/20" },
+};
+
+const VERIFICATION_OPTIONS = [
+  { value: "draft", label: "Draft" },
+  { value: "needs_review", label: "Needs Review" },
+  { value: "verified", label: "Verified" },
+  { value: "rejected", label: "Rejected" },
+];
+
+const normalizeVerificationStatus = (statusStr) => {
+  if (!statusStr) return "draft";
+  const s = String(statusStr).toLowerCase().trim().replace(/[\s-]+/g, "_");
+  if (s === "needs_review" || s === "needsreview") return "needs_review";
+  if (s === "verified") return "verified";
+  if (s === "rejected") return "rejected";
+  return "draft";
+};
+
+const getVerificationBadge = (statusStr) => {
+  const norm = normalizeVerificationStatus(statusStr);
+  return VERIFICATION_STATUS_CONFIG[norm] || VERIFICATION_STATUS_CONFIG.draft;
+};
+
 export default function BillDetails() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -35,6 +63,15 @@ export default function BillDetails() {
   const [translationLangName, setTranslationLangName] = useState("English");
   const [translationError, setTranslationError] = useState("");
   const [copied, setCopied] = useState(false);
+
+  // ── Verification Controls State ────────────────────────────────────────────
+  const [verificationStatus, setVerificationStatus] = useState("draft");
+  const [reviewerNotes, setReviewerNotes] = useState("");
+  const [savedVerificationStatus, setSavedVerificationStatus] = useState("draft");
+  const [savedReviewerNotes, setSavedReviewerNotes] = useState("");
+  const [savingVerification, setSavingVerification] = useState(false);
+  const [verificationError, setVerificationError] = useState("");
+  const [verificationSuccess, setVerificationSuccess] = useState(false);
 
   const handleTranslate = async (langCode = selectedLang) => {
     if (!bill || !id) return;
@@ -69,6 +106,36 @@ export default function BillDetails() {
       setTimeout(() => setCopied(false), 2000);
     });
   };
+
+  const handleSaveVerification = async () => {
+    if (!bill || !id) return;
+    setSavingVerification(true);
+    setVerificationError("");
+    setVerificationSuccess(false);
+
+    try {
+      const payload = {
+        verificationStatus,
+        reviewerNotes,
+      };
+      const res = await updateBillVerification(id, payload);
+
+      setSavedVerificationStatus(verificationStatus);
+      setSavedReviewerNotes(reviewerNotes);
+      setVerificationSuccess(true);
+
+      if (res && res.bill) {
+        setBill(res.bill);
+      } else {
+        setBill((prev) => (prev ? { ...prev, verificationStatus, reviewerNotes } : prev));
+      }
+    } catch (err) {
+      console.error("[BillDetails] Failed to save verification:", err);
+      setVerificationError(err.message || "Failed to update verification status. Please try again.");
+    } finally {
+      setSavingVerification(false);
+    }
+  };
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -79,7 +146,17 @@ export default function BillDetails() {
       
       try {
         const result = await getBillById(id);
-        setBill(result.bill);
+        const b = result.bill;
+        setBill(b);
+
+        // Populate verification fields (with fallback: verificationStatus = "draft", reviewerNotes = "")
+        const initialStatus = normalizeVerificationStatus(b?.verificationStatus);
+        const initialNotes = b?.reviewerNotes || "";
+        
+        setVerificationStatus(initialStatus);
+        setReviewerNotes(initialNotes);
+        setSavedVerificationStatus(initialStatus);
+        setSavedReviewerNotes(initialNotes);
       } catch (err) {
         console.error("[BillDetails] Failed to fetch bill:", err);
         setError(err.message || "Failed to load bill details.");
@@ -123,6 +200,7 @@ export default function BillDetails() {
   }
 
   const status = STATUS_CONFIG[bill.status] || STATUS_CONFIG.pending;
+  const verificationBadge = getVerificationBadge(savedVerificationStatus);
 
   return (
     <div className="space-y-6 pb-20 max-w-4xl mx-auto">
@@ -160,9 +238,15 @@ export default function BillDetails() {
                   </span>
                 </div>
               </div>
-              <span className={clsx("text-xs font-semibold px-3 py-1.5 rounded-full border flex-shrink-0", status.color, status.bg)}>
-                {status.label}
-              </span>
+              <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+                <span className={clsx("text-xs font-semibold px-3 py-1.5 rounded-full border", status.color, status.bg)}>
+                  {status.label}
+                </span>
+                <span id="verification-status-badge" className={clsx("text-xs font-semibold px-3 py-1.5 rounded-full border flex items-center gap-1.5", verificationBadge.color, verificationBadge.bg)}>
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  {verificationBadge.label}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -278,6 +362,100 @@ export default function BillDetails() {
         </motion.div>
       )}
 
+      {/* Verification Controls Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.35 }}
+        className="p-6 rounded-3xl bg-[#171a21] border border-border"
+      >
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <h3 className="font-bold text-white flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-accent" />
+            Verification Controls
+          </h3>
+          <span className={clsx("text-xs font-semibold px-3 py-1 rounded-full border flex items-center gap-1.5", verificationBadge.color, verificationBadge.bg)}>
+            Status: {verificationBadge.label}
+          </span>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="verification-status-select" className="block text-xs text-textSecondary uppercase tracking-widest font-semibold mb-2">
+              Verification Status
+            </label>
+            <select
+              id="verification-status-select"
+              value={verificationStatus}
+              onChange={(e) => {
+                setVerificationStatus(e.target.value);
+                setVerificationSuccess(false);
+                setVerificationError("");
+              }}
+              disabled={savingVerification}
+              className="w-full text-sm bg-[#12141d] border border-border text-white rounded-xl px-4 py-2.5 focus:outline-none focus:border-accent/50 cursor-pointer disabled:opacity-50"
+            >
+              {VERIFICATION_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="reviewer-notes-textarea" className="block text-xs text-textSecondary uppercase tracking-widest font-semibold mb-2">
+              Reviewer Notes
+            </label>
+            <textarea
+              id="reviewer-notes-textarea"
+              value={reviewerNotes}
+              onChange={(e) => {
+                setReviewerNotes(e.target.value);
+                setVerificationSuccess(false);
+                setVerificationError("");
+              }}
+              disabled={savingVerification}
+              placeholder="Enter official reviewer notes, legal verification comments, or audit findings..."
+              rows={4}
+              className="w-full text-sm bg-[#12141d] border border-border text-white rounded-xl p-4 focus:outline-none focus:border-accent/50 placeholder:text-textSecondary/50 resize-y min-h-[100px] disabled:opacity-50"
+            />
+          </div>
+
+          {verificationError && (
+            <div className="p-3.5 rounded-xl bg-danger/10 border border-danger/20 text-xs text-danger flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{verificationError}</span>
+            </div>
+          )}
+
+          {verificationSuccess && (
+            <div className="p-3.5 rounded-xl bg-success/10 border border-success/20 text-xs text-success flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+              <span>Verification status and reviewer notes updated successfully!</span>
+            </div>
+          )}
+
+          <div className="flex justify-end pt-1">
+            <button
+              id="save-verification-btn"
+              onClick={handleSaveVerification}
+              disabled={savingVerification}
+              className="px-6 py-2.5 rounded-xl bg-accent text-black font-bold hover:bg-accentHover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm"
+            >
+              {savingVerification ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save / Update Verification"
+              )}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+
       {/* Tags */}
       {bill.tags && bill.tags.length > 0 && (
         <motion.div
@@ -322,11 +500,25 @@ export default function BillDetails() {
             <p className="text-sm text-white">{bill.billNumber}</p>
           </div>
           <div>
-            <p className="text-xs text-textSecondary uppercase tracking-widest font-semibold mb-1">Status</p>
+            <p className="text-xs text-textSecondary uppercase tracking-widest font-semibold mb-1">Legislative Status</p>
             <span className={clsx("text-xs font-semibold px-2.5 py-1 rounded-full border inline-block", status.color, status.bg)}>
               {status.label}
             </span>
           </div>
+          <div>
+            <p className="text-xs text-textSecondary uppercase tracking-widest font-semibold mb-1">Verification Status</p>
+            <span className={clsx("text-xs font-semibold px-2.5 py-1 rounded-full border inline-block", verificationBadge.color, verificationBadge.bg)}>
+              {verificationBadge.label}
+            </span>
+          </div>
+          {savedReviewerNotes && (
+            <div className="md:col-span-2">
+              <p className="text-xs text-textSecondary uppercase tracking-widest font-semibold mb-1">Reviewer Notes</p>
+              <p className="text-sm text-white bg-[#12141d] p-3.5 rounded-xl border border-border leading-relaxed whitespace-pre-line">
+                {savedReviewerNotes}
+              </p>
+            </div>
+          )}
         </div>
       </motion.div>
 
@@ -353,3 +545,4 @@ export default function BillDetails() {
     </div>
   );
 }
+

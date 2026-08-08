@@ -12,7 +12,7 @@ Migration notes (MongoDB → Firebase):
 import os
 import uuid
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import UploadFile, HTTPException, status
 from app.config.settings import settings
 from app.config.database import get_col
@@ -24,6 +24,7 @@ import traceback
 
 
 class BillController:
+
     @staticmethod
     async def upload_bill_flow(file: UploadFile, current_user: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -290,3 +291,71 @@ class BillController:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Database deletion failed: {str(e)}"
             )
+
+    @staticmethod
+    async def update_verification_flow(
+        bill_id: str,
+        verification_data: Any,
+        current_user: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Update the verification status and reviewer notes for an existing bill document in Firestore.
+        Adds/updates: verificationStatus, reviewerNotes, reviewedAt, reviewedBy.
+        """
+        loop = asyncio.get_event_loop()
+        try:
+            doc_ref = get_col("bills").document(bill_id)
+            doc = await loop.run_in_executor(None, lambda: doc_ref.get())
+            if not doc.exists:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Bill with ID '{bill_id}' not found."
+                )
+
+            reviewed_by = "anonymous"
+            if current_user:
+                reviewed_by = (
+                    current_user.get("email")
+                    or current_user.get("uid")
+                    or current_user.get("_id")
+                    or "authenticated_user"
+                )
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            status_val = verification_data.verificationStatus
+            notes_val = verification_data.reviewerNotes if verification_data.reviewerNotes is not None else ""
+
+            update_payload = {
+                "verificationStatus": status_val,
+                "reviewerNotes": notes_val,
+                "reviewedAt": now_iso,
+                "reviewedBy": reviewed_by,
+            }
+
+            # Update existing Firestore document
+            await loop.run_in_executor(None, lambda: doc_ref.update(update_payload))
+
+            # Fetch updated document to return full object
+            updated_doc = await loop.run_in_executor(None, lambda: doc_ref.get())
+            bill_data = updated_doc.to_dict()
+            bill_data["id"] = updated_doc.id
+            bill_data["_id"] = updated_doc.id
+
+            # Defensive summary string conversion
+            summary = bill_data.get("summary", "")
+            if isinstance(summary, list):
+                bill_data["summary"] = "\n\n".join(summary)
+
+            return {
+                "success": True,
+                "message": "Verification status updated successfully.",
+                "bill": bill_data
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Database update failed: {str(e)}"
+            )
+
