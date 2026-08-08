@@ -14,6 +14,15 @@ class BillResponseModel(BaseModel):
     keyPoints: List[str]
     tags: List[str]
     filePath: Optional[str] = None
+    verificationStatus: Optional[str] = "draft"
+    reviewerNotes: Optional[str] = ""
+    reviewedAt: Optional[str] = None
+    reviewedBy: Optional[str] = None
+    documentType: Optional[str] = "Bill"
+    jurisdiction: Optional[str] = "Central"
+    category: Optional[str] = None
+    riskLevel: Optional[str] = None
+
 
     class Config:
         populate_by_name = True

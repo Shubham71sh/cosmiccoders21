@@ -26,22 +26,33 @@ async def upload_bill(
 
 @router.get("", response_model=BillListResponse)
 async def get_bills(
-    search: Optional[str] = Query(None, description="Search bills by title or bill number"),
+    search: Optional[str] = Query(None, description="Search bills by keyword"),
     status: Optional[str] = Query(None, description="Filter bills by status"),
+    document_type: Optional[str] = Query(None, description="Filter by document type"),
+    jurisdiction: Optional[str] = Query(None, description="Filter by jurisdiction"),
+    category: Optional[str] = Query(None, description="Filter by category"),
+    verification_status: Optional[str] = Query(None, description="Filter by verification status"),
+    risk_level: Optional[str] = Query(None, description="Filter by risk level"),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Items per page"),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
-    Retrieve paginated lists of uploaded bills with search and status filters.
+    Retrieve paginated lists of uploaded bills with keyword search and clause/document filters.
     """
     return await BillController.get_bills_flow(
         search=search,
         status_filter=status,
+        document_type=document_type,
+        jurisdiction=jurisdiction,
+        category=category,
+        verification_status=verification_status,
+        risk_level=risk_level,
         page=page,
         limit=limit,
         current_user=current_user
     )
+
 
 @router.get("/{id}", response_model=BillDetailResponse)
 async def get_bill_by_id(

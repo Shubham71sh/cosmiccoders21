@@ -151,12 +151,17 @@ class BillController:
     async def get_bills_flow(
         search: Optional[str] = None,
         status_filter: Optional[str] = None,
+        document_type: Optional[str] = None,
+        jurisdiction: Optional[str] = None,
+        category: Optional[str] = None,
+        verification_status: Optional[str] = None,
+        risk_level: Optional[str] = None,
         page: int = 1,
         limit: int = 10,
         current_user: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Fetch lists of bills with pagination, search queries, and status filtering from Firestore.
+        Fetch lists of bills with pagination, keyword search, and clause/document filters from Firestore.
         """
         loop = asyncio.get_event_loop()
 
@@ -183,17 +188,64 @@ class BillController:
                 
                 bills_list.append(data)
 
-            # Filter in-memory for search and status
+            # Filter in-memory for keyword search
             if search:
-                s_lower = search.lower()
+                s_lower = search.lower().strip()
                 bills_list = [
                     b for b in bills_list
                     if s_lower in b.get("title", "").lower()
                     or s_lower in b.get("billNumber", "").lower()
+                    or s_lower in b.get("summary", "").lower()
+                    or s_lower in b.get("userImpact", "").lower()
+                    or s_lower in b.get("category", "").lower()
+                    or s_lower in b.get("documentType", "").lower()
+                    or s_lower in b.get("jurisdiction", "").lower()
+                    or any(s_lower in tag.lower() for tag in b.get("tags", []))
+                    or any(s_lower in kp.lower() for kp in b.get("keyPoints", []))
                 ]
 
             if status_filter and status_filter != "all":
                 bills_list = [b for b in bills_list if b.get("status") == status_filter]
+
+            if document_type and document_type != "all":
+                dt_lower = document_type.lower()
+                bills_list = [
+                    b for b in bills_list
+                    if dt_lower in b.get("documentType", "").lower()
+                    or (dt_lower in "act" and "act" in b.get("title", "").lower())
+                    or (dt_lower in "bill" and "bill" in b.get("title", "").lower())
+                ]
+
+            if jurisdiction and jurisdiction != "all":
+                j_lower = jurisdiction.lower()
+                bills_list = [
+                    b for b in bills_list
+                    if j_lower in b.get("jurisdiction", "").lower()
+                    or (j_lower in "state" and "state" in b.get("title", "").lower())
+                    or (j_lower in "central" and "central" in b.get("title", "").lower())
+                ]
+
+            if category and category != "all":
+                c_lower = category.lower()
+                bills_list = [
+                    b for b in bills_list
+                    if c_lower in b.get("category", "").lower()
+                    or any(c_lower in t.lower() for t in b.get("tags", []))
+                ]
+
+            if verification_status and verification_status != "all":
+                vs_lower = verification_status.lower()
+                bills_list = [
+                    b for b in bills_list
+                    if vs_lower == (b.get("verificationStatus") or "draft").lower()
+                ]
+
+            if risk_level and risk_level != "all":
+                r_lower = risk_level.lower()
+                bills_list = [
+                    b for b in bills_list
+                    if r_lower == (b.get("riskLevel") or ("high" if b.get("impactScore", 0) >= 75 else "medium" if b.get("impactScore", 0) >= 40 else "low")).lower()
+                ]
 
             # Sort in-memory by uploadedAt descending
             bills_list.sort(key=lambda x: x.get("uploadedAt", ""), reverse=True)
@@ -209,6 +261,7 @@ class BillController:
                 "page": page,
                 "pages": pages,
             }
+
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
