@@ -27,6 +27,34 @@ class BillResponseModel(BaseModel):
         populate_by_name = True
 
 
+class LegalBriefData(BaseModel):
+    title: str
+    billNumber: str
+    documentType: Optional[str] = "Bill"
+    jurisdiction: Optional[str] = "Central"
+    category: Optional[str] = None
+    uploadedAt: Optional[str] = None
+    executiveSummary: str
+    keyClauses: List[str] = []
+    detectedIssues: List[str] = []
+    verificationStatus: str = "draft"
+    reviewerNotes: str = ""
+    riskLevel: Optional[str] = None
+    impactScore: Optional[int] = None
+    keyTakeaways: List[str] = []
+    disclaimer: str = (
+        "This brief is an AI-assisted review summary and does not replace "
+        "professional legal advice or the original legal document."
+    )
+    generatedAt: Optional[str] = None
+    aiGenerated: bool = False
+
+class LegalReviewBriefResponse(BaseModel):
+    success: bool = True
+    billId: str
+    brief: LegalBriefData
+
+
 class BillVerificationRequest(BaseModel):
     verificationStatus: Literal["draft", "needs_review", "verified", "rejected"] = Field(
         ..., description="Verification status (draft, needs_review, verified, rejected)"

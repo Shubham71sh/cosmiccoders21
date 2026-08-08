@@ -19,7 +19,9 @@ from app.config.database import get_col
 from app.services.pdf_service import extract_text_from_pdf
 from app.services.ai_summary_service import generate_bill_analysis
 from app.services.storage_service import upload_file_to_storage, delete_file_from_storage
+from app.services import review_brief_service
 from typing import Dict, Any, Optional
+
 import traceback
 
 
@@ -410,5 +412,70 @@ class BillController:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Database update failed: {str(e)}"
+            )
+
+    @staticmethod
+    async def generate_review_brief_flow(
+        bill_id: str,
+        current_user: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate a Legal Review Brief for an existing bill.
+
+        1. Fetch bill from Firestore
+        2. Verify ownership (user must own the bill)
+        3. Call review_brief_service.generate_brief()
+        4. Return structured LegalReviewBriefResponse
+
+        Security: verificationStatus and reviewerNotes always come from DB.
+        Gemini is only used for executiveSummary, keyClauses, detectedIssues, keyTakeaways.
+        """
+        loop = asyncio.get_event_loop()
+
+        try:
+            # Fetch the bill from Firestore
+            doc = await loop.run_in_executor(
+                None, lambda: get_col("bills").document(bill_id).get()
+            )
+            if not doc.exists:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Bill with ID '{bill_id}' not found."
+                )
+
+            bill_data = doc.to_dict()
+            bill_data["id"] = doc.id
+            bill_data["_id"] = doc.id
+
+            # Verify ownership — user must own the record
+            if current_user:
+                user_id = current_user.get("uid") or current_user.get("_id")
+                bill_owner = bill_data.get("userId")
+                if bill_owner and user_id and bill_owner != user_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="You are not authorized to generate a brief for this record."
+                    )
+
+            # Defensive: Convert summary from list to string if needed
+            summary = bill_data.get("summary", "")
+            if isinstance(summary, list):
+                bill_data["summary"] = "\n\n".join(summary)
+
+            # Generate the brief
+            brief_data = review_brief_service.generate_brief(bill_data)
+
+            return {
+                "success": True,
+                "billId": bill_id,
+                "brief": brief_data,
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to generate legal review brief: {str(e)}"
             )
 

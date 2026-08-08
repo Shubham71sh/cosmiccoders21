@@ -5,7 +5,8 @@ from app.schemas.bill_schema import (
     BillDetailResponse,
     BillDeleteResponse,
     BillVerificationRequest,
-    BillVerificationResponse
+    BillVerificationResponse,
+    LegalReviewBriefResponse,
 )
 from app.api.controllers.bill_controller import BillController
 from app.middleware.auth import get_current_user
@@ -79,6 +80,21 @@ async def update_bill_verification(
     return await BillController.update_verification_flow(
         bill_id=id,
         verification_data=body,
+        current_user=current_user
+    )
+
+@router.post("/{id}/review-brief", response_model=LegalReviewBriefResponse)
+async def generate_review_brief(
+    id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Generate a structured Legal Review Brief for the selected bill/legal record.
+    Uses existing Gemini AI integration and Firestore data.
+    verificationStatus and reviewerNotes always come from the database.
+    """
+    return await BillController.generate_review_brief_flow(
+        bill_id=id,
         current_user=current_user
     )
 

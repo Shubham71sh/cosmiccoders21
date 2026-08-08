@@ -1,8 +1,8 @@
 import { motion } from "framer-motion";
-import { FileText, ArrowLeft, Calendar, Hash, Shield, ShieldCheck, TrendingUp, Download, Loader2, Globe, Copy, Check, AlertCircle, CheckCircle2 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { FileText, ArrowLeft, Calendar, Hash, Shield, ShieldCheck, TrendingUp, Download, Loader2, Globe, Copy, Check, AlertCircle, CheckCircle2, Gavel, BookOpen, AlertTriangle, Lightbulb, RotateCcw } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { getBillById, translateBill, updateBillVerification } from "../../services/billService";
+import { getBillById, translateBill, updateBillVerification, generateLegalReviewBrief } from "../../services/billService";
 import clsx from "clsx";
 
 const LANGUAGES = [
@@ -73,6 +73,12 @@ export default function BillDetails() {
   const [verificationError, setVerificationError] = useState("");
   const [verificationSuccess, setVerificationSuccess] = useState(false);
 
+  // ── Legal Review Brief State ───────────────────────────────────────────────
+  const [generatingBrief, setGeneratingBrief] = useState(false);
+  const [briefData, setBriefData] = useState(null);
+  const [briefError, setBriefError] = useState("");
+  const briefPreviewRef = useRef(null);
+
   const handleTranslate = async (langCode = selectedLang) => {
     if (!bill || !id) return;
     if (langCode === "en") {
@@ -136,6 +142,215 @@ export default function BillDetails() {
       setSavingVerification(false);
     }
   };
+  // ── Legal Review Brief Handler ────────────────────────────────────────────
+  const handleGenerateBrief = async () => {
+    if (!bill || !id) return;
+    setGeneratingBrief(true);
+    setBriefError("");
+    try {
+      const result = await generateLegalReviewBrief(id);
+      if (result && result.brief) {
+        setBriefData(result.brief);
+        // Scroll to brief preview after a short delay
+        setTimeout(() => {
+          if (briefPreviewRef.current) {
+            briefPreviewRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        }, 200);
+      } else {
+        setBriefError("Failed to generate brief. Please try again.");
+      }
+    } catch (err) {
+      console.error("[BillDetails] Failed to generate brief:", err);
+      setBriefError(err.message || "Failed to generate legal review brief. Please try again.");
+    } finally {
+      setGeneratingBrief(false);
+    }
+  };
+
+  const handleDownloadBrief = async () => {
+    if (!briefData) return;
+
+    // Dynamically import jsPDF to keep bundle size lean
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+    const PAGE_W = 210;
+    const MARGIN = 18;
+    const CONTENT_W = PAGE_W - MARGIN * 2;
+    const LINE_H = 6;
+    let y = MARGIN;
+
+    const addPageIfNeeded = (needed = 12) => {
+      if (y + needed > 280) {
+        doc.addPage();
+        y = MARGIN;
+      }
+    };
+
+    const addText = (text, size = 10, style = "normal", color = [220, 220, 220]) => {
+      doc.setFontSize(size);
+      doc.setFont("helvetica", style);
+      doc.setTextColor(...color);
+      const lines = doc.splitTextToSize(String(text || ""), CONTENT_W);
+      addPageIfNeeded(lines.length * LINE_H + 4);
+      doc.text(lines, MARGIN, y);
+      y += lines.length * LINE_H;
+    };
+
+    const addSectionHeader = (label) => {
+      addPageIfNeeded(14);
+      y += 4;
+      doc.setFillColor(30, 35, 50);
+      doc.roundedRect(MARGIN - 2, y - 4, CONTENT_W + 4, 9, 2, 2, "F");
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(244, 211, 124);
+      doc.text(label, MARGIN, y + 1);
+      y += 8;
+    };
+
+    const addBullet = (text, size = 9) => {
+      const lines = doc.splitTextToSize(`• ${String(text || "")}`, CONTENT_W - 4);
+      addPageIfNeeded(lines.length * LINE_H + 2);
+      doc.setFontSize(size);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(200, 200, 200);
+      doc.text(lines, MARGIN + 3, y);
+      y += lines.length * LINE_H + 1;
+    };
+
+    const addDivider = () => {
+      addPageIfNeeded(6);
+      doc.setDrawColor(60, 65, 80);
+      doc.line(MARGIN, y, PAGE_W - MARGIN, y);
+      y += 5;
+    };
+
+    // ── Background ───────────────────────────────────────────────────────────
+    doc.setFillColor(10, 10, 15);
+    doc.rect(0, 0, PAGE_W, 297, "F");
+
+    // ── Header ───────────────────────────────────────────────────────────────
+    doc.setFillColor(20, 25, 40);
+    doc.rect(0, 0, PAGE_W, 32, "F");
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(244, 211, 124);
+    doc.text("CivicSync AI", MARGIN, 14);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(160, 160, 170);
+    doc.text("Legal Review Brief", MARGIN, 21);
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 115);
+    const genDate = briefData.generatedAt
+      ? new Date(briefData.generatedAt).toLocaleString()
+      : new Date().toLocaleString();
+    doc.text(`Generated: ${genDate}`, PAGE_W - MARGIN, 21, { align: "right" });
+    y = 38;
+
+    addDivider();
+
+    // ── Document Information ─────────────────────────────────────────────────
+    addSectionHeader("Document Information");
+    const infoRows = [
+      ["Title", briefData.title],
+      ["Bill / Document Number", briefData.billNumber],
+      ["Document Type", briefData.documentType || "Bill"],
+      ["Jurisdiction", briefData.jurisdiction || "Central"],
+      ["Category", briefData.category || "—"],
+      ["Date", briefData.uploadedAt ? new Date(briefData.uploadedAt).toLocaleDateString() : "—"],
+    ];
+    infoRows.forEach(([label, value]) => {
+      addPageIfNeeded(8);
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(180, 180, 195);
+      doc.text(`${label}:`, MARGIN, y);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(220, 220, 230);
+      doc.text(String(value || "—"), MARGIN + 50, y);
+      y += LINE_H;
+    });
+
+    addDivider();
+
+    // ── Executive Summary ─────────────────────────────────────────────────────
+    addSectionHeader("1. Executive Summary");
+    addText(briefData.executiveSummary || "Not available.", 9, "normal", [200, 200, 210]);
+    y += 2;
+    addDivider();
+
+    // ── Key Clauses ───────────────────────────────────────────────────────────
+    addSectionHeader("2. Key Clauses");
+    if (briefData.keyClauses && briefData.keyClauses.length > 0) {
+      briefData.keyClauses.forEach((clause, i) => addBullet(`Clause ${i + 1} — ${clause}`));
+    } else {
+      addText("No key clauses available.", 9);
+    }
+    y += 2;
+    addDivider();
+
+    // ── Detected Issues ───────────────────────────────────────────────────────
+    addSectionHeader("3. Detected Issues");
+    if (briefData.detectedIssues && briefData.detectedIssues.length > 0) {
+      briefData.detectedIssues.forEach((issue) => addBullet(issue));
+    } else {
+      addText("No significant issues detected in the available analysis.", 9);
+    }
+    y += 2;
+    addDivider();
+
+    // ── Verification Status ───────────────────────────────────────────────────
+    addSectionHeader("4. Verification Status");
+    const vStatusLabels = { draft: "Draft", needs_review: "Needs Review", verified: "Verified", rejected: "Rejected" };
+    addText(`Status: ${vStatusLabels[briefData.verificationStatus] || briefData.verificationStatus || "Draft"}`, 9, "bold", [244, 211, 124]);
+    y += 2;
+    addDivider();
+
+    // ── Reviewer Notes ────────────────────────────────────────────────────────
+    addSectionHeader("5. Reviewer Notes");
+    addText(briefData.reviewerNotes || "No reviewer notes have been added.", 9, "normal", [200, 200, 210]);
+    y += 2;
+    addDivider();
+
+    // ── Risk Information ──────────────────────────────────────────────────────
+    addSectionHeader("6. Risk Information");
+    addText(`Risk Level: ${briefData.riskLevel || "—"}`, 9, "bold", [244, 211, 124]);
+    y += 1;
+    addText(`Impact Score: ${briefData.impactScore ?? "—"}/100`, 9, "normal", [200, 200, 210]);
+    y += 2;
+    addDivider();
+
+    // ── Key Takeaways ─────────────────────────────────────────────────────────
+    addSectionHeader("7. Key Takeaways");
+    if (briefData.keyTakeaways && briefData.keyTakeaways.length > 0) {
+      briefData.keyTakeaways.forEach((t) => addBullet(t));
+    } else {
+      addText("No key takeaways available.", 9);
+    }
+    y += 4;
+
+    // ── Disclaimer ────────────────────────────────────────────────────────────
+    addPageIfNeeded(18);
+    doc.setDrawColor(60, 65, 80);
+    doc.line(MARGIN, y, PAGE_W - MARGIN, y);
+    y += 5;
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(100, 100, 115);
+    const disclaimerLines = doc.splitTextToSize(
+      `DISCLAIMER: ${briefData.disclaimer || "This brief is an AI-assisted review summary and does not replace professional legal advice or the original legal document."}`,
+      CONTENT_W
+    );
+    doc.text(disclaimerLines, MARGIN, y);
+
+    // ── Download ──────────────────────────────────────────────────────────────
+    const safeName = (briefData.billNumber || "brief").replace(/[^a-z0-9]/gi, "_");
+    doc.save(`CivicSync_Legal_Review_Brief_${safeName}.pdf`);
+  };
+
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -521,6 +736,270 @@ export default function BillDetails() {
           )}
         </div>
       </motion.div>
+
+      {/* ── Elite Bounty: Generate Legal Review Brief ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.55 }}
+        className="p-6 rounded-3xl bg-[#171a21] border border-border"
+      >
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <h3 className="font-bold text-white flex items-center gap-2">
+            <Gavel className="w-5 h-5 text-accent" />
+            Legal Review Brief
+          </h3>
+          {briefData && (
+            <span className="text-xs text-textSecondary">
+              Generated {briefData.aiGenerated ? "with AI" : "from existing data"} ·{" "}
+              {briefData.generatedAt ? new Date(briefData.generatedAt).toLocaleTimeString() : ""}
+            </span>
+          )}
+        </div>
+
+        <p className="text-sm text-textSecondary mb-4">
+          Generate a structured legal review brief containing key clauses, detected issues, verification status, and reviewer notes for this record.
+        </p>
+
+        {briefError && (
+          <div className="p-3.5 rounded-xl bg-danger/10 border border-danger/20 text-xs text-danger flex items-center gap-2 mb-4">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{briefError}</span>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            id="generate-legal-brief-btn"
+            onClick={handleGenerateBrief}
+            disabled={generatingBrief}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent text-[#0a0a0f] font-bold text-sm hover:bg-accentHover transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-glow-accent"
+          >
+            {generatingBrief ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Gavel className="w-4 h-4" />
+                Generate Legal Review Brief
+              </>
+            )}
+          </button>
+
+          {briefData && (
+            <button
+              id="download-brief-btn"
+              onClick={handleDownloadBrief}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#12141d] border border-border text-white font-bold text-sm hover:bg-[#1e2030] hover:border-accent/40 transition-colors"
+            >
+              <Download className="w-4 h-4 text-accent" />
+              Download Brief (PDF)
+            </button>
+          )}
+        </div>
+      </motion.div>
+
+      {/* ── Brief Preview Panel ── */}
+      {briefData && (
+        <motion.div
+          ref={briefPreviewRef}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="rounded-3xl border border-accent/30 bg-[#0f1018] overflow-hidden"
+        >
+          {/* Brief Header */}
+          <div className="p-5 bg-[#12141d] border-b border-border flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-xs text-accent uppercase tracking-widest font-bold mb-0.5">CivicSync AI · Legal Review Brief</p>
+              <h2 className="text-base font-bold text-white">{briefData.title}</h2>
+              <p className="text-xs text-textSecondary mt-0.5 font-mono">{briefData.billNumber}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs px-2.5 py-1 rounded-md bg-[#171a21] border border-border text-textSecondary">{briefData.documentType || "Bill"}</span>
+              <span className="text-xs px-2.5 py-1 rounded-md bg-[#171a21] border border-border text-textSecondary">{briefData.jurisdiction || "Central"}</span>
+              {briefData.riskLevel && (
+                <span className={clsx("text-xs font-semibold px-2.5 py-1 rounded-md border",
+                  briefData.riskLevel === "High" ? "text-danger bg-danger/10 border-danger/20" :
+                  briefData.riskLevel === "Medium" ? "text-accent bg-accent/10 border-accent/20" :
+                  "text-success bg-success/10 border-success/20"
+                )}>
+                  {briefData.riskLevel} Risk
+                </span>
+              )}
+              {briefData.aiGenerated && (
+                <span className="text-xs px-2.5 py-1 rounded-md bg-blue-500/10 border border-blue-500/20 text-blue-400 font-semibold">AI-Enhanced</span>
+              )}
+            </div>
+          </div>
+
+          <div className="p-6 space-y-6">
+
+            {/* Document Information */}
+            <div>
+              <h4 className="text-xs uppercase tracking-widest text-accent font-bold mb-3 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5" /> Document Information
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {[
+                  ["Bill Number", briefData.billNumber],
+                  ["Document Type", briefData.documentType || "Bill"],
+                  ["Jurisdiction", briefData.jurisdiction || "Central"],
+                  ["Category", briefData.category || "—"],
+                  ["Date", briefData.uploadedAt ? new Date(briefData.uploadedAt).toLocaleDateString() : "—"],
+                  ["Impact Score", `${briefData.impactScore ?? "—"}/100`],
+                ].map(([label, value]) => (
+                  <div key={label} className="p-3 rounded-xl bg-[#171a21] border border-border/50">
+                    <p className="text-[10px] text-textSecondary uppercase tracking-wider font-semibold mb-0.5">{label}</p>
+                    <p className="text-xs text-white font-medium">{value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-t border-border/40" />
+
+            {/* 1. Executive Summary */}
+            <div>
+              <h4 className="text-xs uppercase tracking-widest text-accent font-bold mb-3 flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5" /> 1. Executive Summary
+              </h4>
+              <p className="text-sm text-textSecondary leading-relaxed whitespace-pre-line bg-[#171a21] p-4 rounded-xl border border-border/50">
+                {briefData.executiveSummary || "Not available."}
+              </p>
+            </div>
+
+            <div className="border-t border-border/40" />
+
+            {/* 2. Key Clauses */}
+            <div>
+              <h4 className="text-xs uppercase tracking-widest text-accent font-bold mb-3 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5" /> 2. Key Clauses
+              </h4>
+              {briefData.keyClauses && briefData.keyClauses.length > 0 ? (
+                <ul className="space-y-2">
+                  {briefData.keyClauses.map((clause, i) => (
+                    <li key={i} className="flex items-start gap-3 text-sm text-textSecondary bg-[#171a21] p-3.5 rounded-xl border border-border/50">
+                      <span className="w-6 h-6 rounded-full bg-accent/10 text-accent flex items-center justify-center flex-shrink-0 text-xs font-bold mt-0.5">{i + 1}</span>
+                      <span className="leading-relaxed">{clause}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-textSecondary">No key clauses available for this record.</p>
+              )}
+            </div>
+
+            <div className="border-t border-border/40" />
+
+            {/* 3. Detected Issues */}
+            <div>
+              <h4 className="text-xs uppercase tracking-widest text-accent font-bold mb-3 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" /> 3. Detected Issues
+              </h4>
+              {briefData.detectedIssues && briefData.detectedIssues.length > 0 ? (
+                <ul className="space-y-2">
+                  {briefData.detectedIssues.map((issue, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-textSecondary p-3 rounded-xl bg-danger/5 border border-danger/15">
+                      <AlertTriangle className="w-3.5 h-3.5 text-danger flex-shrink-0 mt-0.5" />
+                      <span className="leading-relaxed">{issue}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-textSecondary p-3 bg-success/5 border border-success/15 rounded-xl">No significant issues detected in the available analysis.</p>
+              )}
+            </div>
+
+            <div className="border-t border-border/40" />
+
+            {/* 4. Verification Status */}
+            <div>
+              <h4 className="text-xs uppercase tracking-widest text-accent font-bold mb-3 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5" /> 4. Verification Status
+              </h4>
+              {(() => {
+                const norm = briefData.verificationStatus || "draft";
+                const badge = VERIFICATION_STATUS_CONFIG[norm] || VERIFICATION_STATUS_CONFIG.draft;
+                return (
+                  <span className={clsx("inline-flex items-center gap-2 text-sm font-bold px-4 py-2 rounded-xl border", badge.color, badge.bg)}>
+                    <ShieldCheck className="w-4 h-4" />
+                    {badge.label}
+                  </span>
+                );
+              })()}
+            </div>
+
+            <div className="border-t border-border/40" />
+
+            {/* 5. Reviewer Notes */}
+            <div>
+              <h4 className="text-xs uppercase tracking-widest text-accent font-bold mb-3 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" /> 5. Reviewer Notes
+              </h4>
+              <p className="text-sm text-textSecondary leading-relaxed bg-[#171a21] p-4 rounded-xl border border-border/50 whitespace-pre-line">
+                {briefData.reviewerNotes || "No reviewer notes have been added."}
+              </p>
+            </div>
+
+            <div className="border-t border-border/40" />
+
+            {/* 6. Risk Information */}
+            <div>
+              <h4 className="text-xs uppercase tracking-widest text-accent font-bold mb-3 flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5" /> 6. Risk Information
+              </h4>
+              <div className="flex flex-wrap items-center gap-3">
+                {briefData.riskLevel && (
+                  <span className={clsx("text-sm font-bold px-4 py-2 rounded-xl border",
+                    briefData.riskLevel === "High" ? "text-danger bg-danger/10 border-danger/20" :
+                    briefData.riskLevel === "Medium" ? "text-accent bg-accent/10 border-accent/20" :
+                    "text-success bg-success/10 border-success/20"
+                  )}>
+                    Risk Level: {briefData.riskLevel}
+                  </span>
+                )}
+                {briefData.impactScore != null && (
+                  <span className="text-sm font-bold px-4 py-2 rounded-xl bg-[#171a21] border border-border text-accent">
+                    Impact Score: {briefData.impactScore}/100
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="border-t border-border/40" />
+
+            {/* 7. Key Takeaways */}
+            <div>
+              <h4 className="text-xs uppercase tracking-widest text-accent font-bold mb-3 flex items-center gap-1.5">
+                <Lightbulb className="w-3.5 h-3.5" /> 7. Key Takeaways
+              </h4>
+              {briefData.keyTakeaways && briefData.keyTakeaways.length > 0 ? (
+                <ul className="space-y-2">
+                  {briefData.keyTakeaways.map((t, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-textSecondary">
+                      <span className="text-accent font-bold flex-shrink-0">→</span>
+                      <span className="leading-relaxed">{t}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-textSecondary">No key takeaways available.</p>
+              )}
+            </div>
+
+            {/* Disclaimer */}
+            <div className="border-t border-border/40 pt-4">
+              <p className="text-xs text-textSecondary/60 italic leading-relaxed">
+                ⚠️ <strong>Disclaimer:</strong> {briefData.disclaimer}
+              </p>
+            </div>
+
+          </div>
+        </motion.div>
+      )}
 
       {/* Actions */}
       <motion.div

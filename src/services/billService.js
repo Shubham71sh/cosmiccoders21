@@ -222,4 +222,23 @@ export const updateBillVerification = async (billId, { verificationStatus, revie
   }
 };
 
-
+/**
+ * Generate a Legal Review Brief for an existing bill/legal record.
+ * @param {string} billId - The ID of the bill to generate the brief for
+ * @returns {{ success, billId, brief }}
+ *
+ * Backend: POST /api/bills/:id/review-brief
+ */
+export const generateLegalReviewBrief = async (billId) => {
+  try {
+    const { data } = await api.post(`/bills/${billId}/review-brief`);
+    return data; // { success, billId, brief }
+  } catch (error) {
+    console.error("[billService.generateLegalReviewBrief] Error:", error);
+    throw new Error(
+      error.response?.data?.detail ||
+      error.response?.data?.message ||
+      "Failed to generate legal review brief. Please try again."
+    );
+  }
+};
