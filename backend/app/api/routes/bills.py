@@ -3,7 +3,9 @@ from app.schemas.bill_schema import (
     BillUploadResponse,
     BillListResponse,
     BillDetailResponse,
-    BillDeleteResponse
+    BillDeleteResponse,
+    BillVerificationRequest,
+    BillVerificationResponse
 )
 from app.api.controllers.bill_controller import BillController
 from app.middleware.auth import get_current_user
@@ -64,6 +66,22 @@ async def get_bill_by_id(
     """
     return await BillController.get_bill_by_id_flow(id)
 
+@router.patch("/{id}/verification", response_model=BillVerificationResponse)
+async def update_bill_verification(
+    id: str,
+    body: BillVerificationRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Update verification status and reviewer notes for a legal record/bill.
+    Allowed statuses: draft, needs_review, verified, rejected.
+    """
+    return await BillController.update_verification_flow(
+        bill_id=id,
+        verification_data=body,
+        current_user=current_user
+    )
+
 @router.delete("/{id}", response_model=BillDeleteResponse)
 async def delete_bill(
     id: str,
@@ -73,3 +91,4 @@ async def delete_bill(
     Delete a bill from history and clean up its stored document on disk.
     """
     return await BillController.delete_bill_flow(id)
+

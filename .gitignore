@@ -50,7 +50,11 @@ structure.txt
 
 
 
-# Firebase Admin SDK
 backend/civic-sync-cosmic-firebase-adminsdk-fbsvc-ddcee060c2.json
 
 backend/civic-sync-cosmic-firebase-adminsdk-fbsvc-92503724f2.json
+
+backend/civic-sync-cosmic-firebase-adminsdk-fbsvc-10aab79318.json
+
+# Catch-all: any Firebase service account key
+backend/*firebase-adminsdk*.json

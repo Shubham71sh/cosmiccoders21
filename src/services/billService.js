@@ -197,3 +197,29 @@ export const getSupportedLanguages = async () => {
   }
 };
 
+/**
+ * Update verification status and reviewer notes for a bill.
+ * @param {string} billId - The ID of the bill to update
+ * @param {{ verificationStatus: string, reviewerNotes: string }} payload
+ * @returns {Promise<object>} - Response data from backend
+ *
+ * Backend: PATCH /api/bills/:id/verification
+ */
+export const updateBillVerification = async (billId, { verificationStatus, reviewerNotes }) => {
+  try {
+    const { data } = await api.patch(`/bills/${billId}/verification`, {
+      verificationStatus,
+      reviewerNotes,
+    });
+    return data;
+  } catch (error) {
+    console.error("[billService.updateBillVerification] Error:", error);
+    throw new Error(
+      error.response?.data?.detail ||
+      error.response?.data?.message ||
+      "Failed to update verification status. Please try again."
+    );
+  }
+};
+
+
